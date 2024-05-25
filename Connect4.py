@@ -2,6 +2,7 @@ import numpy as np
 import pygame
 from scipy import signal
 import threading
+import time
 
 # Initialize Pygame
 pygame.init()
@@ -92,48 +93,13 @@ def place_piece(board, col, piece):
     return board
 
 
-def check_victory(board: np.array) -> int:
-    """
-    Navigating through all 4x4 subfields and check for victory condition
-    of either player.
-    :returns: 1 or 2 of player 1 or 2 has won, 0 otherwise.
-    """
-    for row in range(ROW_COUNT - 3):
-        for col in range(COLUMN_COUNT - 3):
-            v = check_subfield(board[row:row + 4, col:col + 4])
-            if v != 0:
-                return v
-    return 0
-
-
-def check_subfield(field: np.array) -> int:
-    # Check diagonal
-    v = same_number(np.diagonal(field))
-    if v != 0:
-        return v
-    v = same_number(np.diagonal(np.fliplr(field)))
-    if v != 0:
-        return v
-    for i in range(4):
-        # Check row
-        v = same_number(field[i, :])
-        if v != 0:
-            return v
-        # Check column
-        v = same_number(field[:, i])
-        if v != 0:
-            return v
-    return 0
-
-
-def same_number(values: list) -> int:
-    if (values == values[0]).all() and values[0] != 0:
-        return values[0]
-    return 0
-
-
 def is_win(board, piece):
-    return check_victory(board) == piece
+    piece_board = (board == piece).astype(int)
+    for cond in WIN_CONDS:
+        conv = signal.convolve2d(piece_board, cond, mode='valid')
+        if np.any(conv == 4):
+            return True
+    return False
 
 
 def is_draw(board):
@@ -150,9 +116,11 @@ def alpha_beta(node, depth, alpha, beta, max_depth=DEPTH):
 
     if depth == 0 or node.is_terminal():
         return score_board(node.board, depth)
+
     if node.is_maximizing_player():
         value = -np.inf
-        for child, _ in node.get_children():
+        children = node.get_children()
+        for child, move in children:
             value = max(value, alpha_beta(
                 child, depth - 1, alpha, beta, max_depth))
             alpha = max(alpha, value)
@@ -161,7 +129,8 @@ def alpha_beta(node, depth, alpha, beta, max_depth=DEPTH):
         return value
     else:
         value = np.inf
-        for child, _ in node.get_children():
+        children = node.get_children()
+        for child, move in children:
             value = min(value, alpha_beta(
                 child, depth - 1, alpha, beta, max_depth))
             beta = min(beta, value)
@@ -196,20 +165,23 @@ def score_player_board(board, player):
     # Score based on sequences found
     for conv in convs:
         score += np.sum(conv == 2) * 10  # Two in a row
-        score += np.sum(conv == 3) * 50  # Three in a row
+        score += np.sum(conv == 3) * 500  # Three in a row
         score += np.sum(conv == 4) * 1000  # Four in a row (winning condition)
 
     for conv in opponent_convs:
         # Opponent two in a row (higher weight to block)
-        score -= np.sum(conv == 2) * 20
+        score -= np.sum(conv == 2) * 200
         # Opponent three in a row (even higher weight to block)
-        score -= np.sum(conv == 3) * 100
+        score -= np.sum(conv == 3) * 300
 
-    # Special case: Block adjacent pieces
+    # Additional checks for horizontal pairs
     for r in range(ROW_COUNT):
-        for c in range(COLUMN_COUNT - 2):
-            if board[r][c] == opponent and board[r][c + 1] == opponent and (c == 0 or board[r][c - 1] == 0) and (c + 2 == COLUMN_COUNT or board[r][c + 2] == 0):
-                score -= 500  # High penalty to block adjacent pieces
+        for c in range(COLUMN_COUNT - 1):
+            if board[r][c] == opponent and board[r][c + 1] == opponent:
+                if c > 0 and board[r][c - 1] == 0:
+                    score -= 400  # Higher penalty for dangerous horizontal pair
+                if c + 2 < COLUMN_COUNT and board[r][c + 2] == 0:
+                    score -= 400  # Higher penalty for dangerous horizontal pair
 
     return score
 
@@ -223,6 +195,8 @@ class PlayerNode:
         moves = valid_moves(self.board)
         children = [(EnemyNode(place_piece(np.copy(self.board),
                                            move, self.player)), move) for move in moves]
+        children.sort(key=lambda child: score_board(
+            child[0].board, 0), reverse=True)
         return children
 
     def is_terminal(self):
@@ -241,6 +215,7 @@ class EnemyNode:
         moves = valid_moves(self.board)
         children = [(PlayerNode(place_piece(np.copy(self.board),
                                             move, self.player)), move) for move in moves]
+        children.sort(key=lambda child: score_board(child[0].board, 0))
         return children
 
     def is_terminal(self):
@@ -254,6 +229,8 @@ def play_move(board):
     global nodes_evaluated
     nodes_evaluated = 0
 
+    start_time = time.time()
+
     moves = valid_moves(board)
     next_boards = [place_piece(np.copy(board), move, AI_PLAYER)
                    for move in moves]
@@ -262,11 +239,15 @@ def play_move(board):
     moves_scores = sorted(zip(moves, scores), key=lambda x: x[1])
     best_move = moves_scores[-1][0]
 
-    print(f"AI considering moves: {moves}")
-    print(f"Move scores: {scores}")
-    print(f"Total number of nodes considered: {nodes_evaluated}")
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
+    print(f"AI considered {len(moves)} moves.")
+    print(f"Total number of nodes evaluated: {nodes_evaluated}")
     print(f"Depth: {DEPTH}")
-    print(f"Best move: {best_move}")
+    print(
+        f"Best move: {best_move} with score {scores[moves.index(best_move)]}")
+    print(f"AI took {elapsed_time:.2f} seconds to make a move.")
 
     return best_move
 
