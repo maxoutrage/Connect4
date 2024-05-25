@@ -58,6 +58,8 @@ WIN_CONDS = [
 # Global counter for nodes evaluated
 nodes_evaluated = 0
 
+# pygame draw
+
 
 def draw_board(board):
     for c in range(COLUMN_COUNT):
@@ -76,6 +78,8 @@ def draw_board(board):
                 pygame.draw.circle(screen, RED, (int(c * SQUARESIZE + SQUARESIZE / 2), int(
                     height - (ROW_COUNT - r - 1) * SQUARESIZE - SQUARESIZE / 2)), RADIUS)
     pygame.display.update()
+
+# console draw
 
 
 def display_board(board):
@@ -156,32 +160,29 @@ def score_player_board(board, player):
     score = 0
     opponent = HUMAN_PLAYER if player == AI_PLAYER else AI_PLAYER
 
-    # Check all win conditions
     convs = [signal.convolve2d((board == player).astype(
         int), cond, mode='valid') for cond in WIN_CONDS]
     opponent_convs = [signal.convolve2d((board == opponent).astype(
         int), cond, mode='valid') for cond in WIN_CONDS]
 
-    # Score based on sequences found
     for conv in convs:
         score += np.sum(conv == 2) * 10  # Two in a row
         score += np.sum(conv == 3) * 500  # Three in a row
         score += np.sum(conv == 4) * 1000  # Four in a row (winning condition)
 
     for conv in opponent_convs:
-        # Opponent two in a row (higher weight to block)
         score -= np.sum(conv == 2) * 200
-        # Opponent three in a row (even higher weight to block)
         score -= np.sum(conv == 3) * 300
 
-    # Additional checks for horizontal pairs
     for r in range(ROW_COUNT):
         for c in range(COLUMN_COUNT - 1):
             if board[r][c] == opponent and board[r][c + 1] == opponent:
-                if c > 0 and board[r][c - 1] == 0:
-                    score -= 400  # Higher penalty for dangerous horizontal pair
-                if c + 2 < COLUMN_COUNT and board[r][c + 2] == 0:
-                    score -= 400  # Higher penalty for dangerous horizontal pair
+                if (c - 1 >= 0 and board[r][c - 1] == 0) or (c + 2 < COLUMN_COUNT and board[r][c + 2] == 0):
+                    score -= 500
+
+            if c < COLUMN_COUNT - 2 and board[r][c] == opponent and board[r][c + 1] == opponent and board[r][c + 2] == opponent:
+                if (c - 1 >= 0 and board[r][c - 1] == 0) or (c + 3 < COLUMN_COUNT and board[r][c + 3] == 0):
+                    score -= 1000
 
     return score
 
